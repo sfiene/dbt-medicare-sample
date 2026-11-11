@@ -1,0 +1,256 @@
+version: 2
+
+models:
+  # ------------------------------------------------------------------ staging
+  - name: stg_thelook__orders
+    description: Orders, one row per order. Flags rows the generator dated in the future.
+    columns:
+      - name: order_id
+        description: Order id. Primary key.
+        data_tests: [unique, not_null]
+      - name: customer_id
+        description: Customer who placed the order.
+        data_tests: [not_null]
+      - name: order_status
+        description: Order status, lower-cased.
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [processing, shipped, complete, returned, cancelled]
+      - name: order_created_at
+        description: When the order was placed (UTC).
+      - name: order_created_date
+        description: Date of order_created_at.
+      - name: order_shipped_at
+        description: When the order shipped. NULL if not yet shipped.
+      - name: order_delivered_at
+        description: When the order was delivered. NULL if not yet delivered.
+      - name: order_returned_at
+        description: When the order was returned. NULL if not returned.
+      - name: reported_item_count
+        description: Source num_of_item. Order-level; never sum it after a join to items.
+      - name: is_future_dated
+        description: created_at is after the current time. Excluded from marts.
+
+  - name: stg_thelook__order_items
+    description: Order items, one row per item.
+    columns:
+      - name: order_item_id
+        description: Order item id. Primary key.
+        data_tests: [unique, not_null]
+      - name: order_id
+        description: Parent order.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_thelook__orders')
+                field: order_id
+      - name: customer_id
+        description: Customer, repeated from the order.
+      - name: product_id
+        description: Product sold.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_thelook__products')
+                field: product_id
+      - name: item_status
+        description: Item status, lower-cased.
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [processing, shipped, complete, returned, cancelled]
+      - name: item_created_at
+        description: Generator offset timestamp. Does not equal the order time; do not use for durations.
+      - name: item_shipped_at
+        description: Item ship time.
+      - name: item_delivered_at
+        description: Item delivery time.
+      - name: item_returned_at
+        description: Item return time.
+      - name: sale_price
+        description: Price the item sold for.
+        data_tests:
+          - not_null
+          - expression_is_true:
+              arguments:
+                expression: "sale_price > 0"
+      - name: is_future_dated
+        description: Item created_at is after the current time.
+
+  - name: stg_thelook__products
+    description: Product catalog, one row per product.
+    columns:
+      - name: product_id
+        description: Product id. Primary key.
+        data_tests: [unique, not_null]
+      - name: product_name
+        description: Product name.
+      - name: brand
+        description: Brand.
+      - name: category
+        description: Category, e.g. 'Jeans'.
+      - name: department
+        description: "'Men' or 'Women'."
+      - name: unit_cost
+        description: Cost to the store.
+      - name: retail_price
+        description: List price.
+      - name: distribution_center_id
+        description: Distribution center that stocks the product.
+
+  - name: stg_thelook__customers
+    description: Customers with PII columns removed.
+    columns:
+      - name: customer_id
+        description: Customer id. Primary key.
+        data_tests: [unique, not_null]
+      - name: age
+        description: Age in years.
+      - name: gender
+        description: "'M' or 'F'."
+      - name: state
+        description: State or province.
+      - name: country
+        description: Country.
+      - name: traffic_source
+        description: Acquisition channel, lower-cased.
+      - name: customer_created_at
+        description: Signup time.
+
+  # -------------------------------------------------------------------- marts
+  - name: fct_order_items
+    description: >
+      Order item fact. Grain: one row per order item. Business key
+      order_item_id. Revenue lives at this grain; fct_orders sums it up.
+    columns:
+      - name: order_item_id
+        description: Primary key.
+        data_tests: [unique, not_null]
+      - name: order_id
+        description: Foreign key to fct_orders.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('fct_orders')
+                field: order_id
+      - name: customer_id
+        description: Foreign key to dim_customers.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_customers')
+                field: customer_id
+      - name: product_id
+        description: Foreign key to dim_products.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_products')
+                field: product_id
+      - name: item_status
+        description: Item status.
+      - name: order_created_at
+        description: Parent order's created_at. The time anchor for this item.
+        data_tests: [not_null]
+      - name: order_created_date
+        description: Date of order_created_at. Semantic-layer time dimension.
+        data_tests: [not_null]
+      - name: category
+        description: Product category.
+      - name: department
+        description: Product department.
+      - name: brand
+        description: Product brand.
+      - name: gross_revenue
+        description: Sale price. Additive.
+      - name: item_cost
+        description: Product unit cost. Additive.
+      - name: gross_margin
+        description: gross_revenue - item_cost.
+      - name: is_returned
+        description: Item was returned.
+      - name: is_cancelled
+        description: Item was cancelled.
+      - name: net_revenue
+        description: Sale price, or 0 when returned or cancelled. A real 0, not missing.
+        data_tests: [not_null]
+
+  - name: fct_orders
+    description: >
+      Order fact. Grain: one row per order. Business key order_id. Amounts
+      are rolled up from fct_order_items.
+    columns:
+      - name: order_id
+        description: Primary key.
+        data_tests: [unique, not_null]
+      - name: customer_id
+        description: Foreign key to dim_customers.
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('dim_customers')
+                field: customer_id
+      - name: order_status
+        description: Order status.
+      - name: order_created_at
+        description: When the order was placed.
+      - name: order_created_date
+        description: Date the order was placed. Semantic-layer time dimension.
+        data_tests: [not_null]
+      - name: order_shipped_at
+        description: When the order shipped.
+      - name: order_delivered_at
+        description: When the order was delivered.
+      - name: item_count
+        description: Items counted from fct_order_items.
+        data_tests:
+          - not_null
+          - expression_is_true:
+              arguments:
+                expression: "item_count = reported_item_count"
+      - name: reported_item_count
+        description: Source num_of_item, kept to reconcile against item_count.
+      - name: returned_item_count
+        description: Items returned.
+      - name: gross_revenue
+        description: Sum of item sale prices.
+      - name: net_revenue
+        description: Gross revenue less returned and cancelled items.
+      - name: item_cost
+        description: Sum of item costs.
+      - name: gross_margin
+        description: Sum of item margins.
+      - name: days_to_ship
+        description: Days from order to ship. NULL until shipped, never 0.
+        data_tests:
+          - expression_is_true:
+              arguments:
+                expression: "days_to_ship >= 0"
+      - name: days_to_deliver
+        description: Days from order to delivery. NULL until delivered.
+
+  - name: dim_products
+    description: Product dimension, one row per product.
+    columns:
+      - name: product_id
+        description: Primary key.
+        data_tests: [unique, not_null]
+
+  - name: dim_customers
+    description: Customer dimension, one row per customer. No PII.
+    columns:
+      - name: customer_id
+        description: Primary key.
+        data_tests: [unique, not_null]
+      - name: age_band
+        description: Age band for reporting.
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['18-24', '25-34', '35-49', '50-64', '65+']

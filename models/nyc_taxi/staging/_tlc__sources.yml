@@ -1,0 +1,16 @@
+version: 2
+
+sources:
+  - name: new_york_taxi_trips
+    description: NYC Taxi & Limousine Commission trip records, mirrored in bigquery-public-data.
+    database: bigquery-public-data
+    schema: new_york_taxi_trips
+    tables:
+      - name: tlc_yellow_trips_2022
+        description: >
+          Yellow cab trips for 2022, 36.3M rows, 7.5 GB, and NOT partitioned or
+          clustered. Any query against it, even one filtered to a single day,
+          reads every byte of the columns it touches. That is the reason the
+          fact table below exists.
+      - name: taxi_zone_geom
+        description: TLC taxi zones with polygons. 263 rows; ids 57, 105, 264 and 265 are missing.

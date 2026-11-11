@@ -1,0 +1,171 @@
+version: 2
+
+models:
+  - name: stg_tlc__yellow_trips
+    description: >
+      Ephemeral staging over the unpartitioned 2022 yellow trip table,
+      limited to the taxi_start_date / taxi_end_date window. No tests here:
+      every test on it would re-scan the 7.5 GB source. Tests run on the
+      partitioned fact instead.
+
+  - name: fct_taxi_trips
+    description: >
+      Yellow taxi trip fact. Grain: one row per trip. Business key trip_key
+      (FARM_FINGERPRINT of the full source row; the source has no id).
+      Incremental, insert_overwrite on daily pickup_date partitions,
+      clustered by pickup_zone_id, payment_type_id. Bad rows are flagged,
+      not removed.
+    columns:
+      - name: trip_key
+        description: Fingerprint of the full source row. Primary key.
+        data_tests: [unique, not_null]
+      - name: pickup_date
+        description: Pickup date. Partition column.
+        data_tests:
+          - not_null
+          - expression_is_true:
+              arguments:
+                expression: "pickup_date >= date('{{ var('taxi_start_date') }}') and pickup_date < date('{{ var('taxi_end_date') }}')"
+      - name: pickup_unix_day
+        description: Days since 1970-01-01 of pickup_date. The partition column in sandbox mode (DBT_BQ_SANDBOX=true).
+      - name: pickup_datetime
+        description: Meter engaged.
+      - name: dropoff_datetime
+        description: Meter disengaged.
+      - name: pickup_zone_id
+        description: TLC pickup zone. Foreign key to dim_taxi_zone. Cluster column.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_taxi_zone')
+                field: zone_id
+      - name: dropoff_zone_id
+        description: TLC dropoff zone. Foreign key to dim_taxi_zone.
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('dim_taxi_zone')
+                field: zone_id
+      - name: vendor_id
+        description: TPEP provider.
+      - name: rate_code_id
+        description: Rate code (1 standard, 2 JFK, ... 99 unknown). Parsed from float strings.
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [1, 2, 3, 4, 5, 6, 99]
+                quote: false
+      - name: payment_type_id
+        description: TLC payment type code. 0 is undocumented in the data dictionary and means not recorded.
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [0, 1, 2, 3, 4, 5, 6]
+                quote: false
+      - name: payment_type
+        description: Readable payment type.
+      - name: is_store_and_forward
+        description: Trip record was held in the vehicle before sending.
+      - name: passenger_count
+        description: Driver-entered passenger count. NULL when not recorded; never filled with 0.
+        data_tests:
+          - null_proportion_at_most:
+              arguments:
+                max_ratio: 0.05
+      - name: trip_distance
+        description: Miles, from the meter.
+      - name: trip_minutes
+        description: Dropoff minus pickup, in minutes. Negative for bad rows.
+      - name: fare_amount
+        description: Time-and-distance fare.
+      - name: extra
+        description: Rush hour and overnight surcharges.
+      - name: mta_tax
+        description: MTA tax.
+      - name: tip_amount
+        description: Tip. Recorded for card payments only; cash tips are not captured.
+      - name: tolls_amount
+        description: Tolls.
+      - name: imp_surcharge
+        description: Improvement surcharge.
+      - name: airport_fee
+        description: Airport fee. NULL on the same rows as passenger_count.
+      - name: total_amount
+        description: Total charged. Negative for refunds and voids.
+      - name: has_valid_duration
+        description: Dropoff after pickup and trip under 24 hours.
+      - name: has_positive_distance
+        description: trip_distance > 0.
+      - name: has_plausible_distance
+        description: trip_distance <= 100 miles. Odometer glitches reach 300,000 miles.
+      - name: has_plausible_speed
+        description: Average speed <= 80 mph. False when duration is not positive.
+      - name: is_refund_or_void
+        description: total_amount < 0.
+      - name: is_valid_trip
+        description: Valid duration, positive and plausible distance, plausible speed, non-negative total. The rollup uses only these.
+        data_tests: [not_null]
+
+  - name: dim_taxi_zone
+    description: TLC zone dimension, one row per zone id (265). Polygons merged per id where taxi_zone_geom repeats one.
+    columns:
+      - name: zone_id
+        description: TLC LocationID. Primary key.
+        data_tests: [unique, not_null]
+      - name: zone_name
+        description: Zone name.
+        data_tests: [not_null]
+      - name: borough
+        description: Borough.
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [Manhattan, Brooklyn, Queens, Bronx, Staten Island, EWR, Unknown, Outside of NYC]
+      - name: zone_geom
+        description: Zone polygon. NULL for the four supplemented ids.
+      - name: has_geometry
+        description: Zone has a polygon in taxi_zone_geom.
+      - name: source_polygon_rows
+        description: Rows in taxi_zone_geom for this id. Above 1 means polygons were merged.
+
+  - name: fct_taxi_zone_daily
+    description: >
+      Daily trips and money by pickup zone, valid trips only. Grain: one row
+      per pickup_date x pickup_zone_id. The table the semantic layer reads.
+    data_tests:
+      - unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [pickup_date, pickup_zone_id]
+    columns:
+      - name: pickup_date
+        description: Pickup date.
+        data_tests: [not_null]
+      - name: pickup_zone_id
+        description: Pickup zone. Foreign key to dim_taxi_zone.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_taxi_zone')
+                field: zone_id
+      - name: trips
+        description: Valid trips.
+      - name: trips_with_passenger_count
+        description: Valid trips with a recorded passenger count. Denominator for average passengers.
+      - name: passengers
+        description: Sum of recorded passenger counts.
+      - name: trip_miles
+        description: Sum of trip distance.
+      - name: trip_minutes
+        description: Sum of trip duration.
+      - name: fare_amount
+        description: Sum of fares.
+      - name: total_amount
+        description: Sum of totals charged.
+      - name: card_trips
+        description: Valid trips paid by credit card.
+      - name: card_fare_amount
+        description: Fares on card trips. Denominator for tip rate.
+      - name: card_tip_amount
+        description: Tips on card trips.

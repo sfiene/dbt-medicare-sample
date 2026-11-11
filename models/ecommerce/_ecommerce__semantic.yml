@@ -1,0 +1,240 @@
+version: 2
+
+# Order-level and item-level measures live in separate semantic models, each
+# on the table whose grain they belong to. Average order value divides
+# order-grain sums by an order count; return rate divides item-grain counts.
+# Neither ever sums a value across a fan-out join.
+
+semantic_models:
+  - name: orders
+    description: One row per order.
+    model: ref('fct_orders')
+    defaults:
+      agg_time_dimension: order_created_date
+    entities:
+      - name: sales_order
+        type: primary
+        expr: order_id
+      - name: customer
+        type: foreign
+        expr: customer_id
+    dimensions:
+      - name: order_created_date
+        type: time
+        type_params:
+          time_granularity: day
+      - name: order_status
+        type: categorical
+    measures:
+      - name: order_count
+        description: Orders placed.
+        agg: count
+        expr: order_id
+      - name: order_item_count
+        description: Items on those orders, counted from the item table.
+        agg: sum
+        expr: item_count
+      - name: order_gross_revenue
+        description: Gross revenue, summed at order grain.
+        agg: sum
+        expr: gross_revenue
+      - name: order_net_revenue
+        description: Net revenue after returns and cancellations.
+        agg: sum
+        expr: net_revenue
+      - name: shipped_order_count
+        description: Orders that have shipped (days_to_ship is not NULL).
+        agg: sum
+        expr: case when days_to_ship is not null then 1 else 0 end
+      - name: days_to_ship_total
+        description: Sum of days to ship over shipped orders.
+        agg: sum
+        expr: days_to_ship
+
+  - name: order_items
+    description: One row per order item.
+    model: ref('fct_order_items')
+    defaults:
+      agg_time_dimension: order_created_date
+    entities:
+      - name: order_item
+        type: primary
+        expr: order_item_id
+      - name: sales_order
+        type: foreign
+        expr: order_id
+      - name: customer
+        type: foreign
+        expr: customer_id
+      - name: product
+        type: foreign
+        expr: product_id
+    dimensions:
+      - name: order_created_date
+        type: time
+        type_params:
+          time_granularity: day
+      - name: category
+        type: categorical
+      - name: department
+        type: categorical
+      - name: item_status
+        type: categorical
+    measures:
+      - name: item_count
+        description: Items sold.
+        agg: count
+        expr: order_item_id
+      - name: returned_item_count
+        description: Items returned.
+        agg: sum
+        expr: case when is_returned then 1 else 0 end
+      - name: item_gross_revenue
+        description: Gross revenue at item grain.
+        agg: sum
+        expr: gross_revenue
+      - name: item_gross_margin
+        description: Gross margin at item grain.
+        agg: sum
+        expr: gross_margin
+
+  - name: customers
+    description: One row per customer. No PII.
+    model: ref('dim_customers')
+    entities:
+      - name: customer
+        type: primary
+        expr: customer_id
+    dimensions:
+      - name: age_band
+        type: categorical
+      - name: traffic_source
+        type: categorical
+      - name: country
+        type: categorical
+      - name: gender
+        type: categorical
+
+  - name: products
+    description: One row per product.
+    model: ref('dim_products')
+    entities:
+      - name: product
+        type: primary
+        expr: product_id
+    dimensions:
+      - name: brand
+        type: categorical
+
+metrics:
+  - name: orders
+    label: Orders
+    description: Orders placed (future-dated rows excluded).
+    type: simple
+    type_params:
+      measure: order_count
+
+  - name: order_items_sold
+    label: Items on orders
+    description: Items on orders, summed at order grain.
+    type: simple
+    type_params:
+      measure: order_item_count
+
+  - name: ecommerce_gross_revenue
+    label: Gross revenue
+    description: Gross revenue, from the order grain.
+    type: simple
+    type_params:
+      measure: order_gross_revenue
+
+  - name: ecommerce_net_revenue
+    label: Net revenue
+    description: Revenue after returned and cancelled items.
+    type: simple
+    type_params:
+      measure: order_net_revenue
+
+  - name: average_order_value
+    label: Average order value
+    description: Net revenue / orders. Both from the order grain, so no fan-out.
+    type: ratio
+    type_params:
+      numerator: ecommerce_net_revenue
+      denominator: orders
+
+  - name: items_per_order
+    label: Items per order
+    description: Items / orders.
+    type: ratio
+    type_params:
+      numerator: order_items_sold
+      denominator: orders
+
+  - name: shipped_orders
+    label: Shipped orders
+    description: Orders that have shipped.
+    type: simple
+    type_params:
+      measure: shipped_order_count
+
+  - name: days_to_ship_sum
+    label: Days to ship (sum)
+    description: Helper for average_days_to_ship.
+    type: simple
+    type_params:
+      measure: days_to_ship_total
+
+  - name: average_days_to_ship
+    label: Average days to ship
+    description: >
+      Mean days from order to ship, over shipped orders only. Unshipped
+      orders are NULL, not 0, so they are excluded from both sides.
+    type: ratio
+    type_params:
+      numerator: days_to_ship_sum
+      denominator: shipped_orders
+
+  - name: items_sold
+    label: Items sold
+    description: Items, from the item grain. Slice by category or department.
+    type: simple
+    type_params:
+      measure: item_count
+
+  - name: returned_items
+    label: Returned items
+    description: Items returned.
+    type: simple
+    type_params:
+      measure: returned_item_count
+
+  - name: item_return_rate
+    label: Item return rate
+    description: Returned items / items sold.
+    type: ratio
+    type_params:
+      numerator: returned_items
+      denominator: items_sold
+
+  - name: item_gross_revenue
+    label: Item gross revenue
+    description: Gross revenue at item grain.
+    type: simple
+    type_params:
+      measure: item_gross_revenue
+
+  - name: item_gross_margin
+    label: Item gross margin
+    description: Gross margin at item grain.
+    type: simple
+    type_params:
+      measure: item_gross_margin
+
+  - name: gross_margin_rate
+    label: Gross margin rate
+    description: Gross margin / gross revenue, at item grain.
+    type: ratio
+    type_params:
+      numerator: item_gross_margin
+      denominator: item_gross_revenue

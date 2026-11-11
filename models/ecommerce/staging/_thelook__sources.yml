@@ -1,0 +1,36 @@
+version: 2
+
+sources:
+  - name: thelook_ecommerce
+    description: >
+      Synthetic e-commerce data (a fictional clothing store) that Google
+      regenerates every day. Unlike the CMS mirror, this one is live, so
+      freshness is a real check here, and tests must not hard-code row counts.
+    database: bigquery-public-data
+    schema: thelook_ecommerce
+    config:
+      # Metadata-based freshness (table last_modified_time).
+      freshness:
+        warn_after: {count: 2, period: day}
+        error_after: {count: 7, period: day}
+    tables:
+      - name: orders
+        description: One row per order. Carries num_of_item, an order-level count.
+        columns:
+          - name: order_id
+            data_tests: [unique, not_null]
+      - name: order_items
+        description: One row per item in an order. sale_price lives here, not on orders.
+        columns:
+          - name: id
+            data_tests: [unique, not_null]
+      - name: products
+        description: Product catalog with cost and retail price.
+        columns:
+          - name: id
+            data_tests: [unique, not_null]
+      - name: users
+        description: Customers. Contains PII-shaped columns (name, email, address) that staging drops.
+        columns:
+          - name: id
+            data_tests: [unique, not_null]

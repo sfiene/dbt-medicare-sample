@@ -15,6 +15,13 @@ vars:
   inpatient_years: [2011, 2012, 2013, 2014, 2015]
   outpatient_years: [2011, 2012, 2013, 2014, 2015]
   physician_years: [2012, 2013, 2014, 2015]
+  # NYC taxi load window (pickup timestamps, [start, end)). One month by
+  # default so the project fits the free BigQuery sandbox; widen it on a
+  # billed project, e.g. --vars '{taxi_end_date: "2023-01-01"}'.
+  taxi_start_date: "2022-01-01"
+  taxi_end_date: "2022-02-01"
+  # Days re-read on each incremental run, to pick up late-arriving trips.
+  taxi_lookback_days: 3
 
 models:
   medicare:
@@ -30,6 +37,19 @@ models:
     marts:
       +materialized: table
       +schema: marts
+    # Phase 2 add-on modules, each in its own dataset.
+    ecommerce:
+      +schema: ecommerce
+      +materialized: table
+      staging:
+        +materialized: view
+    nyc_taxi:
+      +schema: nyc_taxi
+      +materialized: table
+
+seeds:
+  medicare:
+    +schema: seeds
 
 data_tests:
   medicare:

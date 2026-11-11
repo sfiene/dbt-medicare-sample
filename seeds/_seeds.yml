@@ -1,0 +1,22 @@
+version: 2
+
+seeds:
+  - name: taxi_zone_supplement
+    description: >
+      TLC zone ids with no row of their own in bigquery-public-data's
+      taxi_zone_geom (260 distinct ids vs 265 in the TLC zone lookup).
+      Without these, 29,795 January 2022 trips (1.2%) fail the relationship
+      test to dim_taxi_zone or drop out of inner joins.
+    config:
+      column_types:
+        zone_id: string
+    columns:
+      - name: zone_id
+        description: TLC LocationID.
+        data_tests: [unique, not_null]
+      - name: zone_name
+        description: Zone name from the TLC lookup.
+      - name: borough
+        description: Borough from the TLC lookup.
+      - name: reason
+        description: Why the zone is missing from taxi_zone_geom.

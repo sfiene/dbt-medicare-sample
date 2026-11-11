@@ -1,0 +1,6 @@
+zone_id,zone_name,borough,reason
+57,Corona,Queens,"No row of its own in taxi_zone_geom; its polygon is filed as a second zone 56 row"
+104,"Governor's Island/Ellis Island/Liberty Island",Manhattan,"No row of its own in taxi_zone_geom; its polygon is filed as an extra zone 103 row"
+105,"Governor's Island/Ellis Island/Liberty Island",Manhattan,"No row of its own in taxi_zone_geom; its polygon is filed as an extra zone 103 row"
+264,Unknown,Unknown,"TLC code for an unknown location; no polygon"
+265,Outside of NYC,Outside of NYC,"TLC code for trips outside the city; no polygon"

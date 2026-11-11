@@ -1,0 +1,167 @@
+version: 2
+
+# The semantic layer reads the ~7k-row daily rollup, never the trip fact.
+# Every average carries its own denominator: passengers over trips with a
+# recorded count, tips over card fares.
+
+semantic_models:
+  - name: taxi_zone_daily
+    description: Valid yellow-cab trips by pickup day and pickup zone.
+    model: ref('fct_taxi_zone_daily')
+    defaults:
+      agg_time_dimension: pickup_date
+    entities:
+      - name: zone_day
+        type: primary
+        expr: concat(cast(pickup_date as string), '-', pickup_zone_id)
+      - name: pickup_zone
+        type: foreign
+        expr: pickup_zone_id
+    dimensions:
+      - name: pickup_date
+        type: time
+        type_params:
+          time_granularity: day
+    measures:
+      - name: taxi_trip_count
+        description: Valid trips.
+        agg: sum
+        expr: trips
+      - name: taxi_trips_with_passenger_count
+        description: Valid trips with a recorded passenger count.
+        agg: sum
+        expr: trips_with_passenger_count
+      - name: taxi_passenger_total
+        description: Recorded passengers.
+        agg: sum
+        expr: passengers
+      - name: taxi_mile_total
+        description: Trip miles.
+        agg: sum
+        expr: trip_miles
+      - name: taxi_minute_total
+        description: Trip minutes.
+        agg: sum
+        expr: trip_minutes
+      - name: taxi_fare_total
+        description: Fares.
+        agg: sum
+        expr: fare_amount
+      - name: taxi_card_fare_total
+        description: Fares on card trips.
+        agg: sum
+        expr: card_fare_amount
+      - name: taxi_card_tip_total
+        description: Tips on card trips.
+        agg: sum
+        expr: card_tip_amount
+
+  - name: taxi_zones
+    description: TLC zones.
+    model: ref('dim_taxi_zone')
+    entities:
+      - name: pickup_zone
+        type: primary
+        expr: zone_id
+    dimensions:
+      - name: borough
+        type: categorical
+      - name: zone_name
+        type: categorical
+
+metrics:
+  - name: taxi_trips
+    label: Taxi trips
+    description: Valid yellow-cab trips.
+    type: simple
+    type_params:
+      measure: taxi_trip_count
+
+  - name: taxi_fares
+    label: Taxi fares
+    description: Fare amount on valid trips.
+    type: simple
+    type_params:
+      measure: taxi_fare_total
+
+  - name: taxi_fare_per_trip
+    label: Fare per trip
+    description: Fares / trips.
+    type: ratio
+    type_params:
+      numerator: taxi_fares
+      denominator: taxi_trips
+
+  - name: taxi_passengers
+    label: Taxi passengers
+    description: Recorded passengers.
+    type: simple
+    type_params:
+      measure: taxi_passenger_total
+
+  - name: taxi_trips_with_passenger_count
+    label: Trips with a passenger count
+    description: Denominator for average passengers.
+    type: simple
+    type_params:
+      measure: taxi_trips_with_passenger_count
+
+  - name: taxi_avg_passengers
+    label: Average passengers per trip
+    description: >
+      Passengers / trips that recorded a count. Dividing by all trips would
+      treat ~3% of trips as zero-passenger rides.
+    type: ratio
+    type_params:
+      numerator: taxi_passengers
+      denominator: taxi_trips_with_passenger_count
+
+  - name: taxi_card_fares
+    label: Card fares
+    description: Fares on credit-card trips.
+    type: simple
+    type_params:
+      measure: taxi_card_fare_total
+
+  - name: taxi_card_tips
+    label: Card tips
+    description: Tips on credit-card trips.
+    type: simple
+    type_params:
+      measure: taxi_card_tip_total
+
+  - name: taxi_card_tip_rate
+    label: Tip rate (card trips)
+    description: >
+      Card tips / card fares. TLC does not record cash tips, so a tip rate
+      over all fares would be wrong, not just lower.
+    type: ratio
+    type_params:
+      numerator: taxi_card_tips
+      denominator: taxi_card_fares
+
+  - name: taxi_miles
+    label: Trip miles
+    description: Trip miles on valid trips.
+    type: simple
+    type_params:
+      measure: taxi_mile_total
+
+  - name: taxi_minutes
+    label: Trip minutes
+    description: Trip minutes on valid trips.
+    type: simple
+    type_params:
+      measure: taxi_minute_total
+
+  - name: taxi_avg_speed_mph
+    label: Average speed (mph)
+    description: Total miles / total hours. Distance-weighted, not a mean of per-trip speeds.
+    type: derived
+    type_params:
+      expr: miles / minutes * 60
+      metrics:
+        - name: taxi_miles
+          alias: miles
+        - name: taxi_minutes
+          alias: minutes
