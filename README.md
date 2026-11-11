@@ -5,9 +5,10 @@ into tested, documented marts and a MetricFlow semantic layer. It runs against
 `bigquery-public-data.cms_medicare`, so anyone with a GCP project can clone it
 and reproduce every number here.
 
-Two smaller add-on modules sit beside it: **thelook e-commerce** (the order
-vs order-item grain trap) and **NYC taxi** (partitioning and cost on an
-unpartitioned 7.5 GB source). All three share one dbt project and one
+Two smaller add-on modules sit beside it, each with its own write-up:
+[**thelook e-commerce**](models/ecommerce/README.md) (the order vs order-item
+grain trap) and [**NYC taxi**](models/nyc_taxi/README.md) (partitioning and
+cost on an unpartitioned 7.5 GB source). All three share one dbt project and one
 semantic layer: 30 models, 191 tests, 14 semantic models, 47 metrics.
 
 It is a portfolio sample by Scott Fiene (Corvyn Systems). It shows the way I
@@ -207,6 +208,8 @@ source.
 
 ## Add-on module 1: thelook e-commerce (order vs order-item grain)
 
+Full write-up: [models/ecommerce/README.md](models/ecommerce/README.md).
+
 `models/ecommerce/` builds on `bigquery-public-data.thelook_ecommerce`, a
 synthetic clothing store that Google regenerates every day.
 
@@ -235,6 +238,8 @@ semantic models, so `average_order_value` (net revenue / orders, $64.48) and
 `item_return_rate` (9.9%) can never be computed across a fan-out.
 
 ## Add-on module 2: NYC taxi (partitioning and cost)
+
+Full write-up: [models/nyc_taxi/README.md](models/nyc_taxi/README.md).
 
 `models/nyc_taxi/` builds on `new_york_taxi_trips.tlc_yellow_trips_2022`:
 36.3M rows, 7.5 GB, and **not partitioned or clustered**. Every query
