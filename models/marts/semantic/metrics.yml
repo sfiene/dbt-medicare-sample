@@ -1,0 +1,198 @@
+version: 2
+
+metrics:
+  # ---------------------------------------------------------------- inpatient
+  - name: inpatient_discharges
+    label: Inpatient discharges
+    description: Medicare inpatient discharges.
+    type: simple
+    type_params:
+      measure: inpatient_discharges
+
+  - name: inpatient_medicare_payments
+    label: Inpatient Medicare payments
+    description: Total Medicare inpatient payments, discharge-weighted.
+    type: simple
+    type_params:
+      measure: inpatient_medicare_payments
+
+  - name: inpatient_covered_charges
+    label: Inpatient covered charges
+    description: Total amount hospitals billed Medicare for inpatient stays.
+    type: simple
+    type_params:
+      measure: inpatient_covered_charges
+
+  - name: inpatient_total_payments
+    label: Inpatient total payments
+    description: Inpatient payments from all payers.
+    type: simple
+    type_params:
+      measure: inpatient_total_payments
+
+  - name: medicare_payment_per_discharge
+    label: Medicare payment per discharge
+    description: >
+      Medicare payments / discharges. Computed as a ratio of sums so large
+      hospitals weigh in proportion to their volume. Averaging CMS's per-row
+      averages instead gives a different, wrong number.
+    type: ratio
+    type_params:
+      numerator: inpatient_medicare_payments
+      denominator: inpatient_discharges
+
+  - name: inpatient_payment_to_charge_ratio
+    label: Inpatient payment-to-charge ratio
+    description: >
+      Total payments / covered charges. How much of the list price is actually
+      paid. Typically 0.2-0.3: charges are not prices.
+    type: ratio
+    type_params:
+      numerator: inpatient_total_payments
+      denominator: inpatient_covered_charges
+
+  - name: medicare_share_of_inpatient_payments
+    label: Medicare share of inpatient payments
+    description: Medicare payments / payments from all payers.
+    type: ratio
+    type_params:
+      numerator: inpatient_medicare_payments
+      denominator: inpatient_total_payments
+
+  - name: comparable_inpatient_discharges
+    label: Inpatient discharges (trend-safe DRGs)
+    description: >
+      Discharges restricted to DRGs reported in every year. 2011-2013 files
+      cover only the top 100 DRGs, 2014+ about 560, so the unfiltered series
+      jumps in 2014 from scope, not volume. Use this one for year-over-year.
+    type: simple
+    type_params:
+      measure: inpatient_discharges
+    filter: |
+      {{ Dimension('drg__is_in_all_years') }} = true
+
+  - name: comparable_medicare_payment_per_discharge
+    label: Medicare payment per discharge (trend-safe DRGs)
+    description: medicare_payment_per_discharge restricted to DRGs present in every year.
+    type: ratio
+    type_params:
+      numerator:
+        name: inpatient_medicare_payments
+        filter: |
+          {{ Dimension('drg__is_in_all_years') }} = true
+      denominator:
+        name: inpatient_discharges
+        filter: |
+          {{ Dimension('drg__is_in_all_years') }} = true
+
+  - name: comparable_discharges_yoy_growth
+    label: Inpatient discharges YoY growth (trend-safe DRGs)
+    description: Year-over-year change in trend-safe discharges.
+    type: derived
+    type_params:
+      expr: (current_year - prior_year) / prior_year
+      metrics:
+        - name: comparable_inpatient_discharges
+          alias: current_year
+        - name: comparable_inpatient_discharges
+          alias: prior_year
+          offset_window: 1 year
+
+  # --------------------------------------------------------------- outpatient
+  - name: outpatient_services
+    label: Outpatient services
+    description: Outpatient services billed to Medicare.
+    type: simple
+    type_params:
+      measure: outpatient_services
+
+  - name: outpatient_total_payments
+    label: Outpatient total payments
+    description: Outpatient payments from all payers.
+    type: simple
+    type_params:
+      measure: outpatient_total_payments
+
+  - name: outpatient_payment_per_service
+    label: Outpatient payment per service
+    description: Outpatient payments / services, ratio of sums.
+    type: ratio
+    type_params:
+      numerator: outpatient_total_payments
+      denominator: outpatient_services
+
+  # ---------------------------------------------------------------- physician
+  - name: physician_medicare_payments
+    label: Physician Medicare payments
+    description: Medicare payments to physicians and other suppliers.
+    type: simple
+    type_params:
+      measure: physician_medicare_payments
+
+  - name: physician_service_count
+    label: Physician services
+    description: Services rendered by physicians and suppliers (fractional for drug units).
+    type: simple
+    type_params:
+      measure: physician_service_count
+
+  - name: physician_medicare_allowed
+    label: Physician Medicare allowed amount
+    description: Medicare allowed amount for physician services.
+    type: simple
+    type_params:
+      measure: physician_medicare_allowed
+
+  - name: physician_submitted_charges
+    label: Physician submitted charges
+    description: Amount physicians and suppliers billed.
+    type: simple
+    type_params:
+      measure: physician_submitted_charges
+
+  - name: physician_payment_per_service
+    label: Physician payment per service
+    description: Medicare payments / services, ratio of sums.
+    type: ratio
+    type_params:
+      numerator: physician_medicare_payments
+      denominator: physician_service_count
+
+  - name: billing_physicians
+    label: Billing physicians
+    description: Distinct NPIs with at least one reported service.
+    type: simple
+    type_params:
+      measure: billing_physicians
+
+  - name: physician_allowed_to_charge_ratio
+    label: Physician allowed-to-charge ratio
+    description: Medicare allowed / submitted charges.
+    type: ratio
+    type_params:
+      numerator: physician_medicare_allowed
+      denominator: physician_submitted_charges
+
+saved_queries:
+  - name: inpatient_payment_trend_by_state
+    description: >
+      Trend-safe Medicare payment per discharge by year and hospital state.
+      The query a client dashboard would sit on.
+    query_params:
+      metrics:
+        - comparable_medicare_payment_per_discharge
+        - comparable_inpatient_discharges
+      group_by:
+        - TimeDimension('inpatient_charge__service_year_start_date', 'year')
+        - Dimension('hospital__state')
+
+  - name: payment_per_discharge_by_hospital_type
+    description: Medicare payment per discharge and star rating mix by hospital type, 2015.
+    query_params:
+      metrics:
+        - medicare_payment_per_discharge
+        - inpatient_payment_to_charge_ratio
+      group_by:
+        - Dimension('hospital__hospital_type')
+      where:
+        - "{{ TimeDimension('inpatient_charge__service_year_start_date', 'year') }} = '2015-01-01'"

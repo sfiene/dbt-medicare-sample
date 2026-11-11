@@ -1,0 +1,46 @@
+version: 2
+
+models:
+  - name: int_hospitals__resolved
+    description: >
+      One row per hospital CCN found in any source: the most recent
+      charge-file attributes, full-outer-joined to Hospital Compare general
+      info. Flags say which source(s) each hospital came from.
+    columns:
+      - name: provider_id
+        description: CMS Certification Number (CCN).
+        data_tests: [unique, not_null]
+      - name: has_general_info
+        description: Hospital appears in hospital_general_info.
+        data_tests: [not_null]
+      - name: has_charge_data
+        description: Hospital appears in at least one inpatient or outpatient charge file.
+        data_tests: [not_null]
+
+  - name: int_drg_codes
+    description: One row per MS-DRG code with its latest description and year coverage.
+    columns:
+      - name: drg_code
+        description: 3-digit MS-DRG code.
+        data_tests: [unique, not_null]
+
+  - name: int_apc_codes
+    description: One row per APC code with its latest description and year coverage.
+    columns:
+      - name: apc_code
+        description: APC code.
+        data_tests: [unique, not_null]
+
+  - name: int_physicians__latest
+    description: One row per NPI with the most recent year's attributes.
+    columns:
+      - name: npi
+        description: National Provider Identifier.
+        data_tests: [unique, not_null]
+
+  - name: int_hcpcs_codes
+    description: One row per HCPCS code with its latest description and drug flag.
+    columns:
+      - name: hcpcs_code
+        description: HCPCS / CPT code.
+        data_tests: [unique, not_null]

@@ -1,0 +1,266 @@
+version: 2
+
+models:
+  - name: stg_cms__inpatient_charges
+    description: >
+      Inpatient charges by hospital, MS-DRG and year, unioned across the
+      2011-2015 files. CCNs are re-padded to 6 characters and zips normalized
+      to 5. Values are CMS's per-row averages; totals are built in the mart.
+    data_tests:
+      - unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [provider_id, drg_code, service_year]
+    columns:
+      - name: inpatient_charge_id
+        description: Surrogate key, provider_id-drg_code-service_year.
+        data_tests: [unique, not_null]
+      - name: provider_id
+        description: CMS Certification Number (CCN), 6 characters with leading zeros restored.
+        data_tests:
+          - not_null
+          - matches_regex:
+              arguments:
+                pattern: '[0-9A-Z]{6}'
+      - name: drg_code
+        description: 3-digit MS-DRG code parsed from drg_definition.
+        data_tests:
+          - not_null
+          - matches_regex:
+              arguments:
+                pattern: '[0-9]{3}'
+      - name: service_year
+        description: Calendar year of the source file.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [2011, 2012, 2013, 2014, 2015]
+                quote: false
+      - name: service_year_start_date
+        description: January 1 of service_year. Time dimension for the semantic layer.
+      - name: provider_name
+        description: Hospital name as reported in that year's file. Drifts across years.
+      - name: provider_street_address
+        description: Street address as reported in that year's file.
+      - name: provider_city
+        description: City as reported in that year's file.
+      - name: provider_state
+        description: 2-letter state code.
+        data_tests:
+          - not_null
+          - matches_regex:
+              arguments:
+                pattern: '[A-Z]{2}'
+      - name: provider_zip5
+        description: 5-digit zip, normalized from string, float-string and integer source formats.
+        data_tests:
+          - matches_regex:
+              arguments:
+                pattern: '[0-9]{5}'
+      - name: hospital_referral_region
+        description: Dartmouth Atlas hospital referral region, e.g. 'AL - Birmingham'.
+      - name: drg_description_as_reported
+        description: DRG description text exactly as that year's file has it. Use dim_drg for a stable label.
+      - name: total_discharges
+        description: Medicare discharges for this hospital and DRG. CMS suppresses rows under 11.
+        data_tests:
+          - not_null
+          - expression_is_true:
+              arguments:
+                expression: "total_discharges >= 11"
+      - name: average_covered_charges
+        description: Average amount the hospital billed (list price, not what was paid).
+      - name: average_total_payments
+        description: Average total payment, including Medicare, coinsurance, deductible and third-party payers.
+      - name: average_medicare_payments
+        description: Average Medicare share of the payment.
+        data_tests:
+          - not_null
+          - expression_is_true:
+              arguments:
+                expression: "average_medicare_payments <= average_total_payments"
+
+  - name: stg_cms__outpatient_charges
+    description: >
+      Outpatient charges by hospital, APC and year, unioned across the
+      2011-2015 files. 2015 stores the zip as INT64; it is cast before the union.
+    data_tests:
+      - unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [provider_id, apc_code, service_year]
+    columns:
+      - name: outpatient_charge_id
+        description: Surrogate key, provider_id-apc_code-service_year.
+        data_tests: [unique, not_null]
+      - name: provider_id
+        description: CMS Certification Number (CCN), 6 characters with leading zeros restored.
+        data_tests:
+          - not_null
+          - matches_regex:
+              arguments:
+                pattern: '[0-9A-Z]{6}'
+      - name: apc_code
+        description: Ambulatory Payment Classification code parsed from the apc column.
+        data_tests: [not_null]
+      - name: service_year
+        description: Calendar year of the source file.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [2011, 2012, 2013, 2014, 2015]
+                quote: false
+      - name: service_year_start_date
+        description: January 1 of service_year.
+      - name: provider_name
+        description: Hospital name as reported in that year's file.
+      - name: provider_street_address
+        description: Street address as reported in that year's file.
+      - name: provider_city
+        description: City as reported in that year's file.
+      - name: provider_state
+        description: 2-letter state code.
+        data_tests: [not_null]
+      - name: provider_zip5
+        description: 5-digit zip, leading zeros restored.
+        data_tests:
+          - matches_regex:
+              arguments:
+                pattern: '[0-9]{5}'
+      - name: hospital_referral_region
+        description: Dartmouth Atlas hospital referral region.
+      - name: apc_description_as_reported
+        description: APC description text exactly as that year's file has it.
+      - name: outpatient_services
+        description: Count of outpatient services. CMS suppresses rows under 11.
+        data_tests:
+          - not_null
+          - expression_is_true:
+              arguments:
+                expression: "outpatient_services >= 11"
+      - name: average_estimated_submitted_charges
+        description: Average amount the hospital billed.
+      - name: average_total_payments
+        description: Average total payment from all payers.
+        data_tests: [not_null]
+
+  - name: stg_cms__hospital_general_info
+    description: >
+      Hospital Compare general information, one row per hospital. Every
+      'Not Available' becomes NULL (never 0).
+    columns:
+      - name: provider_id
+        description: CMS Certification Number (CCN).
+        data_tests: [unique, not_null]
+      - name: hospital_name
+        description: Hospital name.
+      - name: street_address
+        description: Street address.
+      - name: city
+        description: City.
+      - name: state
+        description: 2-letter state or territory code.
+      - name: zip5
+        description: 5-digit zip.
+      - name: county_name
+        description: County.
+      - name: hospital_type
+        description: CMS hospital type.
+        data_tests:
+          - accepted_values:
+              arguments:
+                values:
+                  - Acute Care Hospitals
+                  - Critical Access Hospitals
+                  - Childrens
+                  - Psychiatric
+                  - Acute Care - Department of Defense
+      - name: hospital_ownership
+        description: Ownership category, e.g. 'Proprietary' or 'Voluntary non-profit - Private'.
+      - name: has_emergency_services
+        description: Whether the hospital offers emergency services.
+      - name: meets_ehr_interoperability_criteria
+        description: Meets the CMS Promoting Interoperability criteria for EHRs.
+      - name: overall_star_rating
+        description: >
+          Hospital Compare overall rating, 1-5. NULL means CMS did not rate the
+          hospital (about 38% of rows), which is not the same as a low rating.
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [1, 2, 3, 4, 5]
+                quote: false
+          - null_proportion_at_most:
+              arguments:
+                max_ratio: 0.45
+      - name: overall_star_rating_footnote
+        description: CMS footnote explaining a missing or qualified rating.
+      - name: mortality_measures_better_count
+        description: Number of mortality measures better than the national rate. NULL when not available.
+      - name: mortality_measures_worse_count
+        description: Number of mortality measures worse than the national rate. NULL when not available.
+      - name: readmission_measures_better_count
+        description: Readmission measures better than national. NULL when not available.
+      - name: readmission_measures_worse_count
+        description: Readmission measures worse than national. NULL when not available.
+      - name: safety_measures_better_count
+        description: Safety measures better than national. NULL when not available.
+      - name: safety_measures_worse_count
+        description: Safety measures worse than national. NULL when not available.
+
+  - name: stg_cms__physician_services
+    description: >
+      Physician and other supplier services by NPI, HCPCS code, place of
+      service and year, unioned across 2012-2015 on the columns common to all
+      four years.
+    columns:
+      - name: physician_service_id
+        description: Surrogate key, npi-hcpcs_code-place_of_service-service_year.
+      - name: npi
+        description: National Provider Identifier, 10 digits.
+      - name: hcpcs_code
+        description: HCPCS / CPT procedure code.
+      - name: place_of_service
+        description: "'F' facility or 'O' office (non-facility)."
+      - name: service_year
+        description: Calendar year of the source file.
+      - name: service_year_start_date
+        description: January 1 of service_year.
+      - name: provider_last_or_org_name
+        description: Last name for individuals, organization name for organizations.
+      - name: provider_first_name
+        description: First name. NULL for organizations.
+      - name: provider_credentials
+        description: Credentials as entered by the provider, e.g. 'M.D.'. Free text.
+      - name: provider_gender
+        description: "'M' or 'F' for individuals. NULL for organizations."
+      - name: entity_code
+        description: "'I' individual or 'O' organization."
+      - name: provider_city
+        description: City from NPPES.
+      - name: provider_zip5
+        description: 5-digit zip from NPPES.
+      - name: provider_state
+        description: State or territory code from NPPES. Includes military codes (AA, AE, AP) and 'XX'.
+      - name: provider_country
+        description: Country code; a few hundred rows are non-US.
+      - name: provider_type
+        description: Specialty, from the claim, e.g. 'Internal Medicine'.
+      - name: is_medicare_participating
+        description: Provider accepts Medicare assignment.
+      - name: hcpcs_description_as_reported
+        description: HCPCS description as that year's file has it.
+      - name: is_drug_service
+        description: HCPCS code is a drug billed in units.
+      - name: service_count
+        description: Number of services. Float, because drug codes bill fractional units.
+      - name: beneficiary_count
+        description: Distinct beneficiaries for this row. Not additive across rows.
+      - name: beneficiary_day_service_count
+        description: Distinct beneficiary-days of service for this row.
+      - name: average_medicare_allowed_amt
+        description: Average Medicare allowed amount per service.
+      - name: average_submitted_chrg_amt
+        description: Average submitted charge per service.
+      - name: average_medicare_payment_amt
+        description: Average Medicare payment per service. 0 is a real value (fully denied or offset), not missing.

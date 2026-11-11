@@ -1,0 +1,221 @@
+version: 2
+
+# MetricFlow semantic models. Facts carry measures; dimensions are joined
+# through entities, so a metric on fct_inpatient_charges can be sliced by
+# hospital__hospital_type or drg__is_in_all_years without new SQL.
+#
+# Design rule: every measure is an additive total (sum) or a distinct count.
+# Ratios live in metrics.yml as sum / sum, never as an average of CMS's
+# per-row averages.
+
+semantic_models:
+  # ------------------------------------------------------------------ inpatient
+  - name: inpatient_charges
+    description: Inpatient Medicare charges, one row per hospital x DRG x year.
+    model: ref('fct_inpatient_charges')
+    defaults:
+      agg_time_dimension: service_year_start_date
+    entities:
+      - name: inpatient_charge
+        type: primary
+        expr: inpatient_charge_id
+      - name: hospital
+        type: foreign
+        expr: provider_id
+      - name: drg
+        type: foreign
+        expr: drg_code
+    dimensions:
+      - name: service_year_start_date
+        type: time
+        type_params:
+          time_granularity: year
+      - name: billed_state
+        type: categorical
+        expr: provider_state
+      - name: hospital_referral_region
+        type: categorical
+    measures:
+      - name: inpatient_discharges
+        description: Medicare inpatient discharges.
+        agg: sum
+        expr: total_discharges
+      - name: inpatient_covered_charges
+        description: Amount hospitals billed (list price).
+        agg: sum
+        expr: total_covered_charges
+      - name: inpatient_total_payments
+        description: Payments from all payers.
+        agg: sum
+        expr: total_payments
+      - name: inpatient_medicare_payments
+        description: Medicare share of payments.
+        agg: sum
+        expr: total_medicare_payments
+      - name: inpatient_billing_hospitals
+        description: Distinct hospitals with at least one reported DRG.
+        agg: count_distinct
+        expr: provider_id
+
+  # ----------------------------------------------------------------- outpatient
+  - name: outpatient_charges
+    description: Outpatient charges, one row per hospital x APC x year.
+    model: ref('fct_outpatient_charges')
+    defaults:
+      agg_time_dimension: service_year_start_date
+    entities:
+      - name: outpatient_charge
+        type: primary
+        expr: outpatient_charge_id
+      - name: hospital
+        type: foreign
+        expr: provider_id
+      - name: apc
+        type: foreign
+        expr: apc_code
+    dimensions:
+      - name: service_year_start_date
+        type: time
+        type_params:
+          time_granularity: year
+      - name: billed_state
+        type: categorical
+        expr: provider_state
+    measures:
+      - name: outpatient_services
+        description: Outpatient services.
+        agg: sum
+        expr: outpatient_services
+      - name: outpatient_submitted_charges
+        description: Amount hospitals billed for outpatient services.
+        agg: sum
+        expr: total_submitted_charges
+      - name: outpatient_total_payments
+        description: Outpatient payments from all payers.
+        agg: sum
+        expr: total_payments
+
+  # ------------------------------------------------------------------ physician
+  - name: physician_services
+    description: Physician and supplier services, one row per NPI x HCPCS x place x year.
+    model: ref('fct_physician_services')
+    defaults:
+      agg_time_dimension: service_year_start_date
+    entities:
+      - name: physician_service
+        type: primary
+        expr: physician_service_key
+      - name: physician
+        type: foreign
+        expr: npi
+      - name: hcpcs
+        type: foreign
+        expr: hcpcs_code
+    dimensions:
+      - name: service_year_start_date
+        type: time
+        type_params:
+          time_granularity: year
+      - name: place_of_service
+        type: categorical
+      - name: specialty
+        type: categorical
+        expr: provider_type
+    measures:
+      - name: physician_service_count
+        description: Services rendered (fractional for drug units).
+        agg: sum
+        expr: service_count
+      - name: physician_medicare_allowed
+        description: Medicare allowed amount.
+        agg: sum
+        expr: total_medicare_allowed
+      - name: physician_submitted_charges
+        description: Amount billed by providers.
+        agg: sum
+        expr: total_submitted_charges
+      - name: physician_medicare_payments
+        description: Medicare payments to providers.
+        agg: sum
+        expr: total_medicare_payments
+      - name: billing_physicians
+        description: Distinct NPIs billing.
+        agg: count_distinct
+        expr: npi
+      # beneficiary_count is intentionally NOT a measure: it is a distinct
+      # count per row and double-counts patients when summed across HCPCS codes.
+
+  # ----------------------------------------------------------------- dimensions
+  - name: hospitals
+    description: Hospital attributes, one row per CCN.
+    model: ref('dim_hospital')
+    entities:
+      - name: hospital
+        type: primary
+        expr: provider_id
+    dimensions:
+      - name: state
+        type: categorical
+      - name: hospital_type
+        type: categorical
+      - name: hospital_ownership
+        type: categorical
+      - name: overall_star_rating
+        type: categorical
+      - name: has_emergency_services
+        type: categorical
+
+  - name: drgs
+    description: MS-DRG attributes, one row per code.
+    model: ref('dim_drg')
+    entities:
+      - name: drg
+        type: primary
+        expr: drg_code
+    dimensions:
+      - name: drg_description
+        type: categorical
+      - name: is_in_all_years
+        type: categorical
+
+  - name: apcs
+    description: APC attributes, one row per code.
+    model: ref('dim_apc')
+    entities:
+      - name: apc
+        type: primary
+        expr: apc_code
+    dimensions:
+      - name: apc_description
+        type: categorical
+      - name: is_in_all_years
+        type: categorical
+
+  - name: physicians
+    description: Physician / supplier attributes, one row per NPI.
+    model: ref('dim_physician')
+    entities:
+      - name: physician
+        type: primary
+        expr: npi
+    dimensions:
+      - name: entity_type
+        type: categorical
+      - name: provider_gender
+        type: categorical
+      - name: home_state
+        type: categorical
+        expr: provider_state
+
+  - name: hcpcs_codes
+    description: HCPCS / CPT code attributes, one row per code.
+    model: ref('dim_hcpcs')
+    entities:
+      - name: hcpcs
+        type: primary
+        expr: hcpcs_code
+    dimensions:
+      - name: hcpcs_description
+        type: categorical
+      - name: is_drug_service
+        type: categorical

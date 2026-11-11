@@ -1,0 +1,36 @@
+name: medicare
+version: "1.0.0"
+config-version: 2
+profile: medicare
+
+model-paths: ["models"]
+test-paths: ["tests"]
+macro-paths: ["macros"]
+analysis-paths: ["analyses"]
+target-path: "target"
+clean-targets: ["target", "dbt_packages", "logs"]
+
+vars:
+  # CMS publishes one table per year. These lists drive the year unions in staging.
+  inpatient_years: [2011, 2012, 2013, 2014, 2015]
+  outpatient_years: [2011, 2012, 2013, 2014, 2015]
+  physician_years: [2012, 2013, 2014, 2015]
+
+models:
+  medicare:
+    +persist_docs:
+      relation: true
+      columns: true
+    staging:
+      +materialized: view
+      +schema: staging
+    intermediate:
+      +materialized: table
+      +schema: intermediate
+    marts:
+      +materialized: table
+      +schema: marts
+
+data_tests:
+  medicare:
+    +severity: error

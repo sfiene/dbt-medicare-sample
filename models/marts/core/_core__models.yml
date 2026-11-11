@@ -1,0 +1,375 @@
+version: 2
+
+models:
+  # ---------------------------------------------------------------- dimensions
+  - name: dim_hospital
+    description: >
+      Hospital dimension. Grain: one row per CCN (provider_id). Includes
+      hospitals that bill but are missing from Hospital Compare, and listed
+      hospitals that never appear in a charge file.
+    columns:
+      - name: provider_id
+        description: CMS Certification Number (CCN). Primary key.
+        data_tests: [unique, not_null]
+      - name: hospital_name
+        description: Hospital Compare name when available, else the latest charge-file name.
+        data_tests: [not_null]
+      - name: street_address
+        description: Street address.
+      - name: city
+        description: City.
+      - name: state
+        description: 2-letter state or territory code.
+        data_tests: [not_null]
+      - name: zip5
+        description: 5-digit zip.
+      - name: county_name
+        description: County. NULL when the hospital is not in Hospital Compare.
+      - name: hospital_referral_region
+        description: Dartmouth Atlas referral region from the latest charge file.
+      - name: hospital_type
+        description: CMS hospital type. NULL when not in Hospital Compare.
+      - name: hospital_ownership
+        description: Ownership category. NULL when not in Hospital Compare.
+      - name: has_emergency_services
+        description: Offers emergency services.
+      - name: meets_ehr_interoperability_criteria
+        description: Meets CMS EHR interoperability criteria.
+      - name: overall_star_rating
+        description: >
+          1-5 overall rating. NULL means not rated. Never coalesce to 0: that
+          would drag every average rating down and rank unrated hospitals last.
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [1, 2, 3, 4, 5]
+                quote: false
+      - name: overall_star_rating_footnote
+        description: CMS footnote for the rating.
+      - name: mortality_measures_better_count
+        description: Mortality measures better than national.
+      - name: mortality_measures_worse_count
+        description: Mortality measures worse than national.
+      - name: readmission_measures_better_count
+        description: Readmission measures better than national.
+      - name: readmission_measures_worse_count
+        description: Readmission measures worse than national.
+      - name: safety_measures_better_count
+        description: Safety measures better than national.
+      - name: safety_measures_worse_count
+        description: Safety measures worse than national.
+      - name: first_charge_year
+        description: First year the hospital appears in a charge file. NULL if it never bills.
+      - name: last_charge_year
+        description: Last year the hospital appears in a charge file.
+      - name: charge_name_variant_count
+        description: Number of distinct names this CCN used across charge files. Above 1 means the name drifted.
+      - name: has_general_info
+        description: Present in Hospital Compare.
+        data_tests: [not_null]
+      - name: has_charge_data
+        description: Present in at least one charge file.
+        data_tests: [not_null]
+
+  - name: dim_drg
+    description: MS-DRG dimension. Grain one row per 3-digit DRG code.
+    columns:
+      - name: drg_code
+        description: 3-digit MS-DRG code. Primary key.
+        data_tests: [unique, not_null]
+      - name: drg_description
+        description: Most recent description for the code.
+        data_tests: [not_null]
+      - name: description_variant_count
+        description: Distinct descriptions seen across years. Above 1 means CMS reworded it.
+      - name: first_service_year
+        description: First year the DRG appears.
+      - name: last_service_year
+        description: Last year the DRG appears.
+      - name: service_year_count
+        description: Number of years the DRG appears.
+      - name: is_in_all_years
+        description: >
+          DRG appears in every year 2011-2015. Only these DRGs are safe for
+          trend lines, since 2011-2013 cover the top 100 DRGs and 2014+ cover ~560.
+        data_tests: [not_null]
+
+  - name: dim_apc
+    description: APC dimension. Grain one row per APC code.
+    columns:
+      - name: apc_code
+        description: APC code. Primary key.
+        data_tests: [unique, not_null]
+      - name: apc_description
+        description: Most recent description for the code.
+      - name: description_variant_count
+        description: Distinct descriptions seen across years.
+      - name: first_service_year
+        description: First year the APC appears.
+      - name: last_service_year
+        description: Last year the APC appears.
+      - name: service_year_count
+        description: Number of years the APC appears.
+      - name: is_in_all_years
+        description: APC appears in every year 2011-2015.
+        data_tests: [not_null]
+
+  - name: dim_physician
+    description: Physician / supplier dimension. Grain one row per NPI, latest attributes.
+    columns:
+      - name: npi
+        description: National Provider Identifier. Primary key.
+        data_tests:
+          - unique
+          - not_null
+          - matches_regex:
+              arguments:
+                pattern: '[0-9]{10}'
+      - name: provider_last_or_org_name
+        description: Last name or organization name.
+      - name: provider_first_name
+        description: First name; NULL for organizations.
+      - name: provider_credentials
+        description: Free-text credentials.
+      - name: provider_gender
+        description: >
+          'M' or 'F'. NULL for organizations by design. Individuals should
+          almost never be NULL: the test below fails if more than 1% are.
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['M', 'F']
+          - null_proportion_at_most:
+              arguments:
+                max_ratio: 0.01
+                where_clause: "entity_code = 'I'"
+      - name: entity_code
+        description: "'I' individual or 'O' organization."
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['I', 'O']
+      - name: entity_type
+        description: Readable form of entity_code.
+      - name: provider_city
+        description: City.
+      - name: provider_state
+        description: State or territory code.
+      - name: provider_zip5
+        description: 5-digit zip.
+      - name: provider_country
+        description: Country code.
+      - name: provider_type
+        description: Specialty from the most recent year.
+      - name: is_medicare_participating
+        description: Accepts Medicare assignment.
+      - name: first_service_year
+        description: First year the NPI bills.
+      - name: last_service_year
+        description: Last year the NPI bills.
+
+  - name: dim_hcpcs
+    description: HCPCS / CPT procedure code dimension. Grain one row per code.
+    columns:
+      - name: hcpcs_code
+        description: HCPCS / CPT code. Primary key.
+        data_tests: [unique, not_null]
+      - name: hcpcs_description
+        description: Most recent description for the code.
+      - name: is_drug_service
+        description: Code is a drug billed in units (true if flagged in any year).
+        data_tests: [not_null]
+      - name: first_service_year
+        description: First year the code appears.
+      - name: last_service_year
+        description: Last year the code appears.
+
+  # --------------------------------------------------------------------- facts
+  - name: fct_inpatient_charges
+    description: >
+      Inpatient Medicare charges and payments. Grain: one row per hospital x
+      MS-DRG x service year. Business key (provider_id, drg_code,
+      service_year). Amounts are discharge-weighted totals, so they sum
+      correctly across any dimension. Partitioned by service_year, clustered
+      by provider_state, drg_code.
+    data_tests:
+      - unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [provider_id, drg_code, service_year]
+    columns:
+      - name: inpatient_charge_id
+        description: Surrogate key. Primary key.
+        data_tests: [unique, not_null]
+      - name: provider_id
+        description: Hospital CCN. Foreign key to dim_hospital.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_hospital')
+                field: provider_id
+      - name: drg_code
+        description: MS-DRG code. Foreign key to dim_drg.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_drg')
+                field: drg_code
+      - name: service_year
+        description: Calendar year. Partition column.
+        data_tests: [not_null]
+      - name: service_year_start_date
+        description: January 1 of service_year. Semantic-layer time dimension.
+        data_tests: [not_null]
+      - name: provider_state
+        description: Hospital state as billed that year.
+      - name: hospital_referral_region
+        description: Hospital referral region as billed that year.
+      - name: drg_description_as_reported
+        description: DRG text as that year's file has it.
+      - name: total_discharges
+        description: Medicare discharges. Additive.
+        data_tests: [not_null]
+      - name: total_covered_charges
+        description: total_discharges x average_covered_charges. What hospitals billed. Additive.
+        data_tests: [not_null]
+      - name: total_payments
+        description: total_discharges x average_total_payments. All payers. Additive.
+        data_tests: [not_null]
+      - name: total_medicare_payments
+        description: total_discharges x average_medicare_payments. Medicare share. Additive.
+        data_tests:
+          - not_null
+          - expression_is_true:
+              arguments:
+                expression: "total_medicare_payments <= total_payments + 0.01"
+      - name: average_covered_charges
+        description: Source average. Row-level reading only; never aggregate.
+      - name: average_total_payments
+        description: Source average. Row-level reading only; never aggregate.
+      - name: average_medicare_payments
+        description: Source average. Row-level reading only; never aggregate.
+
+  - name: fct_outpatient_charges
+    description: >
+      Outpatient charges and payments. Grain: one row per hospital x APC x
+      service year. Business key (provider_id, apc_code, service_year).
+    data_tests:
+      - unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [provider_id, apc_code, service_year]
+    columns:
+      - name: outpatient_charge_id
+        description: Surrogate key. Primary key.
+        data_tests: [unique, not_null]
+      - name: provider_id
+        description: Hospital CCN. Foreign key to dim_hospital.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_hospital')
+                field: provider_id
+      - name: apc_code
+        description: APC code. Foreign key to dim_apc.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_apc')
+                field: apc_code
+      - name: service_year
+        description: Calendar year. Partition column.
+        data_tests: [not_null]
+      - name: service_year_start_date
+        description: January 1 of service_year.
+        data_tests: [not_null]
+      - name: provider_state
+        description: Hospital state as billed that year.
+      - name: hospital_referral_region
+        description: Referral region as billed that year.
+      - name: apc_description_as_reported
+        description: APC text as that year's file has it. APC levels were renumbered across years, so prefer this for year-specific reading.
+      - name: outpatient_services
+        description: Outpatient services. Additive.
+        data_tests: [not_null]
+      - name: total_submitted_charges
+        description: outpatient_services x average_estimated_submitted_charges. Additive.
+      - name: total_payments
+        description: outpatient_services x average_total_payments. Additive.
+        data_tests: [not_null]
+      - name: average_estimated_submitted_charges
+        description: Source average. Do not aggregate.
+      - name: average_total_payments
+        description: Source average. Do not aggregate.
+
+  - name: fct_physician_services
+    description: >
+      Physician and other supplier services. Grain: one row per NPI x HCPCS x
+      place of service x service year. Business key (npi, hcpcs_code,
+      place_of_service, service_year). Partitioned by service_year, clustered
+      by provider_state, hcpcs_code, provider_type.
+    data_tests:
+      - unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [npi, hcpcs_code, place_of_service, service_year]
+    columns:
+      - name: physician_service_key
+        description: >
+          Surrogate key, FARM_FINGERPRINT of npi-hcpcs_code-place_of_service-service_year.
+          INT64 to keep the table small. Primary key.
+        data_tests: [unique, not_null]
+      - name: npi
+        description: Foreign key to dim_physician.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_physician')
+                field: npi
+      - name: hcpcs_code
+        description: HCPCS / CPT code. Foreign key to dim_hcpcs.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_hcpcs')
+                field: hcpcs_code
+      - name: place_of_service
+        description: "'F' facility or 'O' office."
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['F', 'O']
+      - name: service_year
+        description: Calendar year. Partition column.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [2012, 2013, 2014, 2015]
+                quote: false
+      - name: service_year_start_date
+        description: January 1 of service_year.
+      - name: provider_state
+        description: Provider state that year. Cluster column.
+      - name: provider_type
+        description: Specialty that year. Cluster column.
+      - name: service_count
+        description: Services. Additive. Fractional for drug codes.
+        data_tests: [not_null]
+      - name: beneficiary_count
+        description: >
+          Distinct beneficiaries for this row only. NOT additive: summing it
+          across HCPCS codes counts the same patient many times. Deliberately
+          not exposed as a semantic-layer measure.
+      - name: total_medicare_allowed
+        description: service_count x average_medicare_allowed_amt. Additive.
+      - name: total_submitted_charges
+        description: service_count x average_submitted_chrg_amt. Additive.
+      - name: total_medicare_payments
+        description: service_count x average_medicare_payment_amt. Additive. 0 is a real value.
+        data_tests: [not_null]

@@ -1,0 +1,63 @@
+version: 2
+
+sources:
+  - name: cms_medicare
+    description: >
+      Centers for Medicare & Medicaid Services public use files, mirrored by
+      Google in the bigquery-public-data project. One table per calendar year.
+      Rows with fewer than 11 discharges, services or beneficiaries are
+      suppressed by CMS for privacy, so these files are not complete counts.
+    database: bigquery-public-data
+    schema: cms_medicare
+    config:
+      # No load timestamp column exists, so dbt uses BigQuery table metadata
+      # (last_modified_time). The mirror is static, so this is expected to warn:
+      # the point is to surface that the data is years old before anyone
+      # presents it as current.
+      freshness:
+        warn_after: {count: 365, period: day}
+    tables:
+      - name: inpatient_charges_2011
+        description: Inpatient charges by hospital and MS-DRG, 2011. Top 100 DRGs only.
+      - name: inpatient_charges_2012
+        description: Inpatient charges by hospital and MS-DRG, 2012. Top 100 DRGs only.
+      - name: inpatient_charges_2013
+        description: >
+          Inpatient charges by hospital and MS-DRG, 2013. Top 100 DRGs only.
+          provider_zipcode is stored as a float string ('99519.0').
+      - name: inpatient_charges_2014
+        description: Inpatient charges by hospital and MS-DRG, 2014. All DRGs (about 560).
+      - name: inpatient_charges_2015
+        description: Inpatient charges by hospital and MS-DRG, 2015. All DRGs (about 560).
+      - name: outpatient_charges_2011
+        description: Outpatient charges by hospital and APC, 2011.
+      - name: outpatient_charges_2012
+        description: Outpatient charges by hospital and APC, 2012.
+      - name: outpatient_charges_2013
+        description: Outpatient charges by hospital and APC, 2013.
+      - name: outpatient_charges_2014
+        description: Outpatient charges by hospital and APC, 2014.
+      - name: outpatient_charges_2015
+        description: >
+          Outpatient charges by hospital and APC, 2015. provider_zipcode is INT64
+          in this year only, so leading zeros are gone.
+      - name: hospital_general_info
+        description: >
+          Hospital Compare general information: one row per hospital (CCN) with
+          type, ownership and overall star rating. Missing values are the
+          string 'Not Available'.
+        columns:
+          - name: provider_id
+            data_tests:
+              - unique
+              - not_null
+      - name: physicians_and_other_supplier_2012
+        description: Physician and other supplier services by NPI, HCPCS code and place of service, 2012.
+      - name: physicians_and_other_supplier_2013
+        description: Physician and other supplier services by NPI, HCPCS code and place of service, 2013.
+      - name: physicians_and_other_supplier_2014
+        description: >
+          Physician and other supplier services, 2014. Schema drift: the stdev_*
+          columns are gone and average_medicare_standard_amt is new.
+      - name: physicians_and_other_supplier_2015
+        description: Physician and other supplier services, 2015. Same schema as 2014.

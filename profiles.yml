@@ -1,0 +1,17 @@
+# Checked in on purpose: no secrets here. Auth is Application Default Credentials
+# (method: oauth). Set DBT_GCP_PROJECT to your own billing project.
+medicare:
+  target: dev
+  outputs:
+    dev:
+      type: bigquery
+      method: oauth
+      project: "{{ env_var('DBT_GCP_PROJECT') }}"
+      dataset: "{{ env_var('DBT_BQ_DATASET', 'dbt_medicare') }}"
+      location: US            # bigquery-public-data lives in the US multi-region
+      threads: 4
+      priority: interactive
+      job_execution_timeout_seconds: 600
+      # Cost guardrail: any single query that would bill more than 10 GB fails
+      # instead of running. A full build bills well under this per query.
+      maximum_bytes_billed: 10000000000
