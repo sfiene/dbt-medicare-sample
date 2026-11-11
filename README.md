@@ -254,8 +254,9 @@ Design:
   Inlined, the source is read once per build.
 - **The trip fact is partitioned by day and clustered** by pickup zone and
   payment type, and built incrementally with `insert_overwrite`: each run
-  replaces only the last `taxi_lookback_days` partitions, with no MERGE
-  against the target.
+  replaces only the last `taxi_lookback_days` partitions. dbt runs a MERGE
+  scoped to those partitions, so it never matches keys across the whole
+  table.
 - **The load window is a variable** (`taxi_start_date`, `taxi_end_date`),
   one month by default so it fits the free sandbox.
 - **Dashboards read a rollup.** 2.5M trips become about 7k rows in
@@ -275,6 +276,23 @@ answer, 3,205 trips and $145,993.48:
 BigQuery bills a 10 MB minimum per query, so the last three bill the same. At
 this size clustering adds nothing on top of the daily partition. It pays off
 once the window is widened to a full year.
+
+The incremental path, verified on a billed project. After a full build of
+January 2022, a plain `dbt build --select fct_taxi_trips`:
+
+| Check | Result |
+|---|---|
+| Partitions rewritten | Jan 28-31 only (the last `taxi_lookback_days` + 1); the other 27 untouched |
+| MERGE row counts | 287,389 deleted, 287,389 inserted: exactly those four days |
+| Table rows before and after | 2,463,900 and 2,463,900 |
+| Bytes, MERGE into the target | 141 MB |
+| Bytes, reading the source for the run | 7.5 GB |
+
+That last row is the real lesson. Going incremental makes the writes cheap,
+but the source is unpartitioned, so every run still pays for a full read of
+the columns it touches. On a client project the fix is upstream: land the
+raw data partitioned (or as monthly files), then the same model reads a few
+days of it.
 
 | Trap | What it does if missed | Fix | Test |
 |---|---|---|---|
@@ -305,7 +323,10 @@ while building it:
    builds as a plain table. On a billed project, leave `DBT_BQ_SANDBOX`
    unset to get DATE partitions and the incremental path.
 
-Sandbox tables also expire after 60 days. Rebuild before a demo.
+Sandbox tables also expire after 60 days. Datasets created in the sandbox
+keep those 60-day table and partition defaults even after billing is linked:
+clear them on the datasets, then `dbt build --full-refresh`, or DATE
+partitions older than 60 days are still deleted.
 
 ## How to run it
 
